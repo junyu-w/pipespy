@@ -65,6 +65,29 @@ stage's, as in a shell.
 stdout and a per-stage table (status, time, lines/bytes in and out, stderr)
 to stderr.
 
+## For AI agents (and scripts)
+
+The TUI needs a person at a terminal. Agents use the non-interactive
+commands instead: run the pipeline once, then query any stage's input,
+output or stderr from the saved run without re-running it.
+
+```sh
+pipespy run 'grep -v DEBUG app.log | cut -d" " -f3 | sort | uniq -c'   # summary + hints
+pipespy inspect --stage 2 --stream in --grep timeout                  # what stage 2 received
+pipespy diff --stage 3                                                # what stage 3 removed/added
+pipespy trace --match 'user=42'                                       # where matching lines are lost
+pipespy runs                                                          # saved runs
+```
+
+Every command takes `--json` for a stable schema, and output is bounded
+(50 lines unless asked) so it fits in a model's context. The summary
+includes hints such as "data disappears at stage 4" with the exact
+command to run next.
+
+**`pipespy guide`** prints the full agent guide ([docs/agent-guide.md](docs/agent-guide.md)),
+including recipes, JSON shapes, and a snippet to paste into your `AGENTS.md`
+or `CLAUDE.md`.
+
 ## Keys
 
 | key | action |

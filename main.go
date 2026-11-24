@@ -38,10 +38,28 @@ Examples:
 Windows: stages run in sh/bash when found on PATH (e.g. Git for Windows),
 otherwise cmd.exe. Use --shell powershell (or pwsh, cmd) to choose.
 
-Flags:
+Non-interactive commands (for agents and scripts; run "pipespy guide"):
+  pipespy run [--json] '<pipeline>'       run once, save every stream, print a summary
+  pipespy inspect [RUN] --stage N         print a stage's output (--stream in|err, --grep, --range)
+  pipespy diff [RUN] --stage N            lines a stage removed and added
+  pipespy trace [RUN] --match RE          follow matching lines through every stage
+  pipespy runs                            list saved runs
+  pipespy guide                           the full guide for AI agents
+
+Flags (interactive mode):
 `
 
 func main() {
+	if len(os.Args) > 1 {
+		if cmd, ok := subcommands[os.Args[1]]; ok {
+			c := cli{out: os.Stdout, err: os.Stderr}
+			if !term.IsTerminal(int(os.Stdin.Fd())) {
+				c.in = os.Stdin
+			}
+			os.Exit(cmd(c, os.Args[2:]))
+		}
+	}
+
 	shell := flag.String("shell", envOr("PIPESPY_SHELL", defaultShell()), "shell used to run each stage")
 	report := flag.Bool("report", false, "run without the TUI: final output to stdout, per-stage summary to stderr")
 	showVersion := flag.Bool("version", false, "print version and exit")
