@@ -30,7 +30,14 @@ recording what passes through. You can select any stage and see:
 brew install junyu-w/tap/pipespy
 ```
 
-**Windows**: download `pipespy_<version>_windows_amd64.zip` (or `arm64`) from
+**Windows** ([Scoop](https://scoop.sh))
+
+```powershell
+scoop bucket add junyu-w https://github.com/junyu-w/scoop-bucket
+scoop install junyu-w/pipespy
+```
+
+or download `pipespy_<version>_windows_amd64.zip` (or `arm64`) from
 [Releases](https://github.com/junyu-w/pipespy/releases), unzip, and put
 `pipespy.exe` on your PATH. Use Windows Terminal or the regular console
 (mintty, the default Git Bash window, isn't a Windows console).
@@ -93,10 +100,13 @@ Push a tag: `git tag v0.2.0 && git push origin v0.2.0`. The
 3. smoke-tests each archive on its own OS and architecture,
 4. publishes a GitHub Release with archives and `checksums.txt`,
 5. updates `Formula/pipespy.rb` in
-   [junyu-w/homebrew-tap](https://github.com/junyu-w/homebrew-tap), and
-6. installs it with `brew` on a fresh macOS runner to confirm.
+   [junyu-w/homebrew-tap](https://github.com/junyu-w/homebrew-tap) and
+   `bucket/pipespy.json` in
+   [junyu-w/scoop-bucket](https://github.com/junyu-w/scoop-bucket), and
+6. installs it with `brew` (macOS) and `scoop` (Windows) on fresh runners.
 
 Run the workflow manually (Actions → release → Run workflow) for a dry run
-of steps 1–3. Step 5 needs a `TAP_DEPLOY_KEY` secret: the private half of a
-deploy key with write access to the tap repo. `scripts/setup-tap-key.sh`
-sets both up (one time).
+of steps 1–3. Step 5 needs `TAP_DEPLOY_KEY` and `SCOOP_DEPLOY_KEY` secrets: deploy keys
+with write access to the tap and bucket repos. Set each up once with
+`scripts/setup-deploy-key.sh homebrew-tap TAP_DEPLOY_KEY` and
+`scripts/setup-deploy-key.sh scoop-bucket SCOOP_DEPLOY_KEY`.

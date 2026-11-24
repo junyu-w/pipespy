@@ -1,0 +1,61 @@
+name: verify-install
+
+# Installs a published release through each package manager on a clean
+# runner, exactly as a user would. Called by the release workflow; can also
+# be run by hand for any published version.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Published version to verify (e.g. 0.2.0)"
+        required: true
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  homebrew:
+    runs-on: macos-latest
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: brew install, test, audit
+        run: |
+          brew install ${{ github.repository_owner }}/tap/pipespy
+          brew test ${{ github.repository_owner }}/tap/pipespy
+          brew audit --strict --online ${{ github.repository_owner }}/tap/pipespy
+          pipespy --version | grep -Fx "pipespy ${VERSION#v}"
+          printf 'b\na\n' | pipespy --report 'sort -r' | head -1 | grep -Fx b
+
+  scoop:
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ inputs.version }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: install Scoop
+        run: |
+          iex "& {$(irm get.scoop.sh)} -RunAsAdmin"
+          "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: scoop install pipespy
+        run: |
+          scoop bucket add ${{ github.repository_owner }} https://github.com/${{ github.repository_owner }}/scoop-bucket
+          scoop install ${{ github.repository_owner }}/pipespy
+          if ($LASTEXITCODE -ne 0) { throw "scoop install failed" }
+      - name: run it
+        run: |
+          $want = "pipespy " + $env:VERSION.TrimStart("v")
+          $got = (pipespy --version).Trim()
+          if ($got -ne $want) { throw "version: got '$got', want '$want'" }
+          $out = "b`na`n" | pipespy --report --shell cmd "sort /r" 2>$null
+          if ($out[0].Trim() -ne "b") { throw "pipeline output: $out" }
+          "ok: $got"

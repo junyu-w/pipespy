@@ -41,7 +41,14 @@ cat <<EOF
 brew install $owner/tap/pipespy
 \`\`\`
 
-**Windows**: download \`pipespy_${version}_windows_amd64.zip\` (or \`_arm64\`), unzip, and put \`pipespy.exe\` on your PATH.
+**Windows (Scoop)**
+
+\`\`\`powershell
+scoop bucket add $owner https://github.com/$owner/scoop-bucket
+scoop install $owner/pipespy
+\`\`\`
+
+Or download \`pipespy_${version}_windows_amd64.zip\` (or \`_arm64\`), unzip, and put \`pipespy.exe\` on your PATH.
 
 **Other platforms**: pick the archive for your OS/arch below; \`checksums.txt\` lists SHA-256 sums.
 

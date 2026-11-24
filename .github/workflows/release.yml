@@ -148,17 +148,37 @@ jobs:
           git commit -m "pipespy $version"
           git push origin HEAD:main
 
-  # Install from the tap exactly like a user would.
-  verify-homebrew:
-    needs: homebrew
-    runs-on: macos-latest
-    env:
-      HOMEBREW_NO_AUTO_UPDATE: "1"
-      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+  scoop:
+    needs: publish
+    runs-on: ubuntu-latest
     steps:
-      - name: brew install, test, audit
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: update manifest in the bucket
+        env:
+          SCOOP_DEPLOY_KEY: ${{ secrets.SCOOP_DEPLOY_KEY }}
+          OWNER: ${{ github.repository_owner }}
         run: |
-          brew install ${{ github.repository_owner }}/tap/pipespy
-          brew test ${{ github.repository_owner }}/tap/pipespy
-          brew audit --strict --online ${{ github.repository_owner }}/tap/pipespy
-          pipespy --version | grep -Fx "pipespy ${VERSION#v}"
+          version=${VERSION#v}
+          install -m 600 /dev/null ~/bucket_key
+          printf '%s\n' "$SCOOP_DEPLOY_KEY" > ~/bucket_key
+          export GIT_SSH_COMMAND="ssh -i ~/bucket_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git clone "git@github.com:$OWNER/scoop-bucket.git" bucket
+          scripts/render-scoop.sh "$OWNER" "$version" dist/checksums.txt > bucket/bucket/pipespy.json
+          cd bucket
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bucket/pipespy.json
+          if git diff --cached --quiet; then echo "manifest unchanged"; exit 0; fi
+          git commit -m "pipespy $version"
+          git push origin HEAD:main
+
+  # Install through Homebrew and Scoop on clean runners, like a user would.
+  verify-install:
+    needs: [homebrew, scoop]
+    uses: ./.github/workflows/verify-install.yml
+    with:
+      version: ${{ github.ref_name }}
