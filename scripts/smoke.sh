@@ -31,11 +31,11 @@ export PIPESPY_HOME
 PIPESPY_HOME=$(mktemp -d)
 printf 'a\nb\n' | "$bin" run --json 'sort -r | head -1' > run.json || fail "agent run exit $?"
 grep -q '"status": "ok"' run.json || fail "agent run: $(cat run.json)"
-"$bin" inspect --stage 1 | norm | grep -q $'^ *1\tb$' || fail "inspect: $("$bin" inspect --stage 1)"
-"$bin" trace --match a | norm | grep -q "lost at stage 2" || fail "trace: $("$bin" trace --match a)"
-"$bin" diff --stage 2 --json | norm | grep -q '"removed": 1' || fail "diff: $("$bin" diff --stage 2)"
-"$bin" runs | norm | grep -q "sort -r" || fail "runs"
-"$bin" guide | norm | grep -q "pipespy for AI agents" || fail "guide"
+"$bin" inspect --stage 1 | norm | grep $'^ *1\tb$' >/dev/null || fail "inspect: $("$bin" inspect --stage 1)"
+"$bin" trace --match a | norm | grep "lost at stage 2" >/dev/null || fail "trace: $("$bin" trace --match a)"
+"$bin" diff --stage 2 --json | norm | grep '"removed": 1' >/dev/null || fail "diff: $("$bin" diff --stage 2)"
+"$bin" runs | norm | grep "sort -r" >/dev/null || fail "runs"
+"$bin" guide | norm | grep "pipespy for AI agents" >/dev/null || fail "guide"
 set +e
 "$bin" run --timeout 300ms --no-stdin 'sleep 5' >/dev/null
 code=$?
@@ -49,7 +49,7 @@ MINGW* | MSYS* | CYGWIN*)
   [ "$out" = "hello world" ] || fail "cmd shell: '$out'"
   out=$("$bin" --report --shell powershell "Write-Output 'ps-ok'" 2>/dev/null | norm)
   [ "$out" = "ps-ok" ] || fail "powershell: '$out'"
-  PIPESPY_HOME=$(mktemp -d) "$bin" run --no-stdin --shell cmd 'echo hello| findstr hello' | norm | grep -q "hello" || fail "agent run with cmd"
+  PIPESPY_HOME=$(mktemp -d) "$bin" run --no-stdin --shell cmd 'echo hello| findstr hello' | norm | grep "hello" >/dev/null || fail "agent run with cmd"
   ;;
 esac
 rm -f report.txt
