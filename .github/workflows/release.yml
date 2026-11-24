@@ -113,6 +113,7 @@ jobs:
       - name: write release notes
         env:
           OWNER: ${{ github.repository_owner }}
+          GH_TOKEN: ${{ github.token }}
         run: scripts/release-notes.sh "$GITHUB_REF_NAME" "$OWNER" > notes.md && cat notes.md
       - name: create GitHub release
         env:

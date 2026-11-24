@@ -7,7 +7,16 @@ tag=$1
 owner=$2
 version=${tag#v}
 
-prev=$(git describe --tags --abbrev=0 --match 'v*' "$tag^" 2>/dev/null || true)
+# Previous tag that was actually released (a tag whose release run failed
+# before publishing shouldn't swallow its changes). Falls back to the
+# previous tag when gh isn't available.
+prev=
+for t in $(git tag --merged "$tag^" --list 'v*' --sort=-v:refname); do
+  if ! command -v gh >/dev/null || [ -z "${GH_TOKEN:-}" ] || gh release view "$t" >/dev/null 2>&1; then
+    prev=$t
+    break
+  fi
+done
 range=${prev:+$prev..}$tag
 
 feat=() fix=() other=()
