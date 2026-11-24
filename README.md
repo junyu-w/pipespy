@@ -2,9 +2,15 @@
 
 A terminal UI that shows the data flowing through every pipe of a shell pipeline.
 
+![pipespy demo: stepping through a six-stage log pipeline, then editing it in place](docs/demo.gif)
+
+```sh
+cat access.log | pipespy 'grep -v kube-probe | awk "{print \$9, \$7}" | grep "^[45]" | sort | uniq -c | sort -rn'
 ```
-pipespy 'cat access.log | grep " 404 " | awk "{print \$7}" | sort | uniq -c | sort -rn'
-```
+
+<sub>The demo is generated from [`docs/demo/demo.tape`](docs/demo/demo.tape) with
+[VHS](https://github.com/charmbracelet/vhs); re-record with
+`go build -o pipespy . && vhs docs/demo/demo.tape`.</sub>
 
 pipespy runs each stage in its own shell and sits on every pipe in between,
 recording what passes through. You can select any stage and see:
