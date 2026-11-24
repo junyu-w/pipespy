@@ -1,0 +1,19 @@
+class Pipespy < Formula
+  desc "TUI that shows the data flowing through every pipe of a shell pipeline"
+  homepage "@HOMEPAGE@"
+  url "@URL@"
+  sha256 "@SHA256@"
+  license "MIT"
+  head "@HEAD@", branch: "main"
+
+  depends_on "go" => :build
+
+  def install
+    system "go", "build", *std_go_args(ldflags: "-s -w -X main.version=#{version}")
+  end
+
+  test do
+    assert_match "pipespy #{version}", shell_output("#{bin}/pipespy --version")
+    assert_match "empty command", shell_output("#{bin}/pipespy 'ls |' 2>&1", 1)
+  end
+end
