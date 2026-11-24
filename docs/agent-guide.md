@@ -133,6 +133,10 @@ Look for `\r` at the ends of lines in `inspect` output, `(CRLF)` in the
 summary, or near misses in `trace`: Windows line endings break `$` anchors
 and exact field comparisons. Add `tr -d '\r'` early in the pipeline.
 
+**Counts are too small or split up.** `uniq` (and `uniq -c`) only merges
+*adjacent* duplicates; the summary hints when a uniq stage got unsorted
+input. Put `sort` before it.
+
 **A stage failed.** `pipespy inspect --stage N --stream err`. Exit 127 means
 command not found; exit 1 from grep-like tools means no match.
 

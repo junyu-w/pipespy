@@ -238,3 +238,21 @@ func TestAgentMakesCRLFVisible(t *testing.T) {
 		t.Errorf("trace near miss: %+v", tr)
 	}
 }
+
+func TestAgentHintsUnsortedUniq(t *testing.T) {
+	isolate(t)
+	sh := posixShell(t)
+	out, _, _ := agent(t, strings.NewReader("a\nb\na\nb\nc\nc\n"), "run", "--shell", sh, "uniq -c | sort -rn")
+	if !strings.Contains(out, "stage 1 (uniq -c) got unsorted input: 2 values") {
+		t.Errorf("missing uniq hint:\n%s", out)
+	}
+	out, _, _ = agent(t, strings.NewReader("a\na\nb\nc\nc\n"), "run", "--shell", sh, "uniq -c")
+	if strings.Contains(out, "unsorted input") {
+		t.Errorf("false positive on grouped input:\n%s", out)
+	}
+	agent(t, strings.NewReader("a\nb\na\n"), "run", "--shell", sh, "uniq -c")
+	out, _, _ = agent(t, nil, "diff", "--stage", "1")
+	if !strings.Contains(out, "rewrites lines rather than filtering") {
+		t.Errorf("missing transform note:\n%s", out)
+	}
+}

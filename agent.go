@@ -206,7 +206,48 @@ func buildSummary(pl *Pipeline, meta RunMeta, sample int, saved bool, timeout ti
 		s.Stages = append(s.Stages, st)
 	}
 	s.Hints, s.Next = hints(meta, saved, timeout)
+	s.Hints = append(s.Hints, dataHints(pl)...)
 	return s
+}
+
+// dataHints looks at the recorded data itself for semantic mistakes that
+// don't show up as errors.
+func dataHints(pl *Pipeline) []string {
+	var out []string
+	for i, st := range pl.Stages {
+		if firstWord(st.Cmd) != "uniq" {
+			continue
+		}
+		split, example := splitRuns(pl.Links[i].RawLines(0, 1<<30))
+		if split > 0 {
+			out = append(out, fmt.Sprintf("stage %d (%s) got unsorted input: %d %s (e.g. %q) appear in several separate runs, "+
+				"so uniq counts or keeps each run separately. uniq only merges adjacent duplicates; put sort before it",
+				i+1, oneLine(st.Cmd), split, plural(int64(split), "value", "values"), clip(sanitize(example), 60)))
+		}
+	}
+	return out
+}
+
+// splitRuns counts distinct lines that occur in more than one run of
+// adjacent duplicates.
+func splitRuns(lines [][]byte) (int, string) {
+	seen := map[string]int{} // line -> number of runs
+	example := ""
+	split := 0
+	for i, l := range lines {
+		if i > 0 && bytes.Equal(l, lines[i-1]) {
+			continue
+		}
+		k := string(l)
+		seen[k]++
+		if seen[k] == 2 {
+			split++
+			if example == "" {
+				example = k
+			}
+		}
+	}
+	return split, example
 }
 
 func hints(m RunMeta, saved bool, timeout time.Duration) (hints, next []string) {
@@ -715,6 +756,11 @@ func cmdDiff(c cli, args []string) int {
 		fmt.Fprint(w, ", order changed")
 	}
 	fmt.Fprintln(w, "\n(line-based, ignoring position: a changed line counts as one removed + one added)")
+	if res.Kept == 0 && res.Removed > 0 && res.Added > 0 {
+		fmt.Fprintf(w, "note: no line passed through unchanged, so this stage rewrites lines rather than filtering them; "+
+			"compare inputs and outputs directly with: pipespy inspect %s --stage %d --stream in --head 20  and  pipespy inspect %s --stage %d --head 20\n",
+			res.Run, res.Stage, res.Run, res.Stage)
+	}
 	section := func(title string, total int, ls []DiffLine, where string) {
 		fmt.Fprintf(w, "\n%s (%d):\n", title, total)
 		if total == 0 {
