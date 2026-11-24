@@ -1,0 +1,167 @@
+name: release
+
+# Push a tag like v1.2.3 to build, verify and publish a release.
+# Run it manually (Actions → release → Run workflow) for a dry run that
+# builds and smoke-tests everything without publishing.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version for the dry run (no release is published)"
+        default: "0.0.0-dryrun"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: cross-compile and package
+        run: |
+          version=${VERSION#v}
+          echo "building $version"
+          mkdir -p dist build
+          for t in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+            os=${t%/*}; arch=${t#*/}
+            name=pipespy_${version}_${os}_${arch}
+            ext=; [ "$os" = windows ] && ext=.exe
+            mkdir -p "build/$name"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w -X main.version=$version" -o "build/$name/pipespy$ext" .
+            cp README.md LICENSE "build/$name/"
+            if [ "$os" = windows ]; then
+              (cd build && zip -qr "../dist/$name.zip" "$name")
+            else
+              tar -C build -czf "dist/$name.tar.gz" "$name"
+            fi
+          done
+          (cd dist && sha256sum * > checksums.txt)
+          ls -l dist && cat dist/checksums.txt
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  # Run each release binary on its real OS before anything is published.
+  smoke:
+    needs: build
+    name: smoke (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    target: linux_amd64,   ext: tar.gz }
+          - { os: ubuntu-24.04-arm, target: linux_arm64,   ext: tar.gz }
+          - { os: macos-latest,     target: darwin_arm64,  ext: tar.gz }
+          - { os: windows-latest,   target: windows_amd64, ext: zip }
+          - { os: windows-11-arm,   target: windows_arm64, ext: zip }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: verify checksum, unpack, smoke test
+        run: |
+          version=${VERSION#v}
+          name=pipespy_${version}_${{ matrix.target }}
+          file=$name.${{ matrix.ext }}
+          (cd dist && grep " $file\$" checksums.txt | sha256sum -c -)
+          mkdir unpacked
+          if [ "${{ matrix.ext }}" = zip ]; then unzip -q "dist/$file" -d unpacked; else tar -xzf "dist/$file" -C unpacked; fi
+          scripts/smoke.sh "unpacked/$name/pipespy" "$version"
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<EOF
+          ## Install
+
+          **macOS / Linux (Homebrew)**
+          \`\`\`sh
+          brew install ${{ github.repository_owner }}/tap/pipespy
+          \`\`\`
+
+          **Windows**: download \`pipespy_${VERSION#v}_windows_amd64.zip\` (or \`arm64\`), unzip, and put \`pipespy.exe\` on your PATH.
+
+          **Anything else**: grab the archive for your platform below; \`checksums.txt\` has SHA-256 sums.
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" --title "pipespy ${VERSION#v}" \
+            --notes-file notes.md --generate-notes --verify-tag
+
+  homebrew:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: update formula in the tap
+        env:
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          version=${VERSION#v}
+          install -m 600 /dev/null ~/tap_key
+          printf '%s\n' "$TAP_DEPLOY_KEY" > ~/tap_key
+          export GIT_SSH_COMMAND="ssh -i ~/tap_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git clone "git@github.com:$OWNER/homebrew-tap.git" tap
+          scripts/render-formula.sh "$OWNER" "$version" > tap/Formula/pipespy.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/pipespy.rb
+          if git diff --cached --quiet; then echo "formula unchanged"; exit 0; fi
+          git commit -m "pipespy $version"
+          git push origin HEAD:main
+
+  # Install from the tap exactly like a user would.
+  verify-homebrew:
+    needs: homebrew
+    runs-on: macos-latest
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - name: brew install, test, audit
+        run: |
+          brew install ${{ github.repository_owner }}/tap/pipespy
+          brew test ${{ github.repository_owner }}/tap/pipespy
+          brew audit --strict --online ${{ github.repository_owner }}/tap/pipespy
+          pipespy --version | grep -Fx "pipespy ${VERSION#v}"

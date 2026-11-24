@@ -33,12 +33,17 @@ Examples:
   pipespy 'cat /etc/passwd | grep -v "^#" | cut -d: -f7 | sort | uniq -c | sort -rn'
   ps aux | pipespy 'awk "{print \$1}" | sort | uniq -c | sort -rn | head'
   pipespy 'seq 1 100000 | grep 7 | wc -l'
+  pipespy --report 'sort | uniq -c' < words.txt     # no TUI, summary on stderr
+
+Windows: stages run in sh/bash when found on PATH (e.g. Git for Windows),
+otherwise cmd.exe. Use --shell powershell (or pwsh, cmd) to choose.
 
 Flags:
 `
 
 func main() {
-	shell := flag.String("shell", envOr("PIPESPY_SHELL", "/bin/sh"), "shell used to run each stage")
+	shell := flag.String("shell", envOr("PIPESPY_SHELL", defaultShell()), "shell used to run each stage")
+	report := flag.Bool("report", false, "run without the TUI: final output to stdout, per-stage summary to stderr")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Usage = func() {
 		fmt.Fprint(os.Stderr, usageText)
@@ -61,34 +66,42 @@ func main() {
 		fatal(err.Error())
 	}
 
-	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
-	if err != nil {
-		fatal("pipespy needs an interactive terminal (could not open /dev/tty)")
-	}
-	defer tty.Close()
-
-	// Bind styling to the terminal, not to stdout, which may be a pipe.
-	r := lipgloss.NewRenderer(tty, termenv.WithColorCache(true))
-	lipgloss.SetDefaultRenderer(r)
-	initStyles()
-
 	stdinPiped := !term.IsTerminal(int(os.Stdin.Fd()))
 	stdoutPiped := !term.IsTerminal(int(os.Stdout.Fd()))
-
 	var src io.Reader
 	if stdinPiped {
 		src = os.Stdin
 	}
+
+	if *report {
+		pl.Run(src)
+		os.Exit(runReport(pl, os.Stdout, os.Stderr))
+	}
+
+	ttyIn, ttyOut, err := openTTY()
+	if err != nil {
+		fatal("pipespy needs an interactive terminal (use --report to run without one): " + err.Error())
+	}
+	defer ttyIn.Close()
+	defer ttyOut.Close()
+	restore := prepareConsole(ttyOut)
+
+	// Bind styling to the terminal, not to stdout, which may be a pipe.
+	r := lipgloss.NewRenderer(ttyOut, termenv.WithColorCache(true))
+	lipgloss.SetDefaultRenderer(r)
+	initStyles()
+
 	pl.Run(src)
 
 	m := newModel(pl, *shell, stdoutPiped)
 	prog := tea.NewProgram(m,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
-		tea.WithInput(tty),
-		tea.WithOutput(tty),
+		tea.WithInput(ttyIn),
+		tea.WithOutput(ttyOut),
 	)
 	final, err := prog.Run()
+	restore()
 	fm, _ := final.(*model)
 	if fm == nil {
 		fm = m

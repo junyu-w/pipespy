@@ -1,7 +1,9 @@
 package main
 
 import (
+	"os/exec"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -44,7 +46,7 @@ func waitDone(t *testing.T, p *Pipeline) {
 }
 
 func TestRunCapturesEveryLink(t *testing.T) {
-	p, _ := NewPipeline(`tr a-z A-Z | grep -v B | sort -r`, "/bin/sh")
+	p, _ := NewPipeline(`tr a-z A-Z | grep -v B | sort -r`, posixShell(t))
 	p.Run(strings.NewReader("a\nb\nc\n"))
 	waitDone(t, p)
 	want := []string{"a\nb\nc\n", "A\nB\nC\n", "A\nC\n", "C\nA\n"}
@@ -62,10 +64,11 @@ func TestRunCapturesEveryLink(t *testing.T) {
 }
 
 func TestSigpipeAndStderr(t *testing.T) {
-	p, _ := NewPipeline(`yes | head -3 | sh -c 'cat; echo oops >&2; exit 3'`, "/bin/sh")
+	p, _ := NewPipeline(`yes | head -3 | sh -c 'cat; echo oops >&2; exit 3'`, posixShell(t))
 	p.Run(nil)
 	waitDone(t, p)
-	if st := p.Stages[0].Info().State; st != PipeClosed {
+	// Windows has no SIGPIPE; there `yes` just has to terminate (no deadlock).
+	if st := p.Stages[0].Info().State; st != PipeClosed && runtime.GOOS != "windows" {
 		t.Errorf("yes state = %v, want PipeClosed", st)
 	}
 	if got := string(p.Links[2].All()); got != "y\ny\ny\n" {
@@ -91,4 +94,17 @@ func TestLinesWithoutTrailingNewline(t *testing.T) {
 	if string(got[1]) != "two" || string(got[2]) != "three" {
 		t.Errorf("lines %q", got)
 	}
+}
+
+// posixShell returns a POSIX shell, or skips (e.g. Windows without Git).
+func posixShell(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		return "/bin/sh"
+	}
+	if p, err := exec.LookPath("sh"); err == nil {
+		return p
+	}
+	t.Skip("no POSIX shell on PATH")
+	return ""
 }

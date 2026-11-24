@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 )
 
@@ -112,8 +111,7 @@ func (p *Pipeline) Run(stdin io.Reader) {
 		if i+1 < n {
 			next = inW[i+1]
 		}
-		cmd := exec.Command(p.Shell, "-c", st.Cmd)
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd := shellCommand(p.Shell, st.Cmd)
 		if inR[i] != nil {
 			cmd.Stdin = inR[i]
 		}
@@ -191,31 +189,11 @@ func pump(r io.Reader, c *Capture, next io.WriteCloser) {
 }
 
 func (s *Stage) finish(err error, killed bool) {
+	state, code, msg := exitState(err, killed)
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.end = time.Now()
-	s.state, s.code = Exited, 0
-	if err == nil {
-		return
-	}
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) {
-		s.state, s.code, s.errMsg = Failed, 1, err.Error()
-		return
-	}
-	ws, _ := ee.Sys().(syscall.WaitStatus)
-	switch {
-	case ws.Signaled() && ws.Signal() == syscall.SIGPIPE:
-		s.state, s.code = PipeClosed, 141
-	case ws.Signaled() && killed:
-		s.state, s.code = Killed, 128+int(ws.Signal())
-	case ws.Signaled():
-		s.state, s.code, s.errMsg = Failed, 128+int(ws.Signal()), ws.Signal().String()
-	case ws.ExitStatus() == 141:
-		s.state, s.code = PipeClosed, 141
-	default:
-		s.state, s.code = Failed, ws.ExitStatus()
-	}
+	s.state, s.code, s.errMsg = state, code, msg
+	s.mu.Unlock()
 }
 
 func (p *Pipeline) Done() bool {
@@ -239,12 +217,16 @@ func (p *Pipeline) End() time.Time {
 
 func (p *Pipeline) Kill() {
 	p.killed.Store(true)
+	var pids []int
 	for _, s := range p.Stages {
 		s.mu.Lock()
 		if s.state == Running && s.pid > 0 {
-			syscall.Kill(-s.pid, syscall.SIGKILL)
+			pids = append(pids, s.pid)
 		}
 		s.mu.Unlock()
+	}
+	for _, pid := range pids {
+		killTree(pid)
 	}
 }
 
