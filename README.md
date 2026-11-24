@@ -98,4 +98,5 @@ Push a tag: `git tag v0.2.0 && git push origin v0.2.0`. The
 
 Run the workflow manually (Actions → release → Run workflow) for a dry run
 of steps 1–3. Step 5 needs a `TAP_DEPLOY_KEY` secret: the private half of a
-deploy key with write access to the tap repo.
+deploy key with write access to the tap repo. `scripts/setup-tap-key.sh`
+sets both up (one time).
