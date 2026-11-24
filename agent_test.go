@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -215,7 +216,13 @@ func TestAgentMakesCRLFVisible(t *testing.T) {
 	sh := posixShell(t)
 	out, _, _ := agent(t, strings.NewReader("US,paid\r\nDE,pending\r\nFR,paid\r\n"), "run", "--shell", sh,
 		`grep ',paid$' | cut -d, -f1`)
-	for _, want := range []string{"(CRLF)", "Windows (CRLF) line endings", "data disappears at stage 1", "note:     exit 0 is the last stage's status"} {
+	wants := []string{"(CRLF)", "Windows (CRLF) line endings"}
+	if runtime.GOOS != "windows" {
+		// MSYS grep (Git for Windows) treats \r\n as the line end, so there
+		// the pattern matches and stage 1 succeeds.
+		wants = append(wants, "data disappears at stage 1", "note:     exit 0 is the last stage's status")
+	}
+	for _, want := range wants {
 		if !strings.Contains(out, want) {
 			t.Errorf("summary missing %q:\n%s", want, out)
 		}
