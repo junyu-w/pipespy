@@ -23,11 +23,12 @@ type StreamMeta struct {
 	Truncated bool  `json:"truncated,omitempty"`
 	Binary    bool  `json:"binary,omitempty"`
 	CutShort  bool  `json:"cut_short,omitempty"`
+	CRLF      bool  `json:"crlf,omitempty"` // Windows (\r\n) line endings
 }
 
 func streamMeta(c *Capture) StreamMeta {
 	s := c.Stats()
-	return StreamMeta{s.Bytes, s.Lines, s.Truncated, s.Binary, s.CutShort}
+	return StreamMeta{s.Bytes, s.Lines, s.Truncated, s.Binary, s.CutShort, s.CRLF}
 }
 
 type StageMeta struct {
@@ -292,7 +293,8 @@ func (r *Run) pipeData(k int) ([]byte, error) {
 	return os.ReadFile(filepath.Join(r.path, fmt.Sprintf("pipe-%d.data", k)))
 }
 
-// splitLines splits data into lines without their terminators.
+// splitLines splits data on \n. A trailing \r is kept so that CRLF data
+// is visible (agentLine renders it as \r).
 func splitLines(data []byte) [][]byte {
 	if len(data) == 0 {
 		return nil
@@ -300,9 +302,6 @@ func splitLines(data []byte) [][]byte {
 	lines := bytes.Split(data, []byte{'\n'})
 	if len(lines[len(lines)-1]) == 0 {
 		lines = lines[:len(lines)-1]
-	}
-	for i, l := range lines {
-		lines[i] = bytes.TrimSuffix(l, []byte{'\r'})
 	}
 	return lines
 }

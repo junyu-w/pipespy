@@ -78,7 +78,7 @@ Prints one recorded stream with line numbers (`N<TAB>text`).
 | `--grep RE` | only lines matching a Go (RE2) regular expression; add `-i` to ignore case |
 | `--all` | no limit (without it, at most 50 lines are shown) |
 | `--max-width N` | clip long lines (default 400 characters; `0` = never) |
-| `--hex` | hex dump (automatic for binary data) |
+| `--hex` | hex dump (automatic for binary data); `--head`/`--range` then count 16-byte rows |
 | `--json` | JSON output |
 
 The input of stage N is the output of stage N-1, so `--stage 3 --stream in`
@@ -96,7 +96,9 @@ filter (`grep`, `awk`, `sed`, `uniq`) actually did.
 ### `pipespy trace [RUN] --match RE`
 
 Counts the lines matching RE in every pipe and names the stage where they are
-dropped or lost. Use it to answer "why is X missing from the result?".
+dropped or lost. Use it to answer "why is X missing from the result?". The
+`near misses` column counts lines that would match once a trailing `\r` or
+whitespace is removed, the usual sign of CRLF data or trailing spaces.
 
 ```
   pipe                                    lines  matches  first match
@@ -125,6 +127,11 @@ shows the stage that drops it; then `pipespy inspect --stage N --stream in --gre
 shows the lines that stage received.
 
 **A filter removes too much or too little.** `pipespy diff --stage N`.
+
+**A grep/awk/cut stage drops lines that look like they should match.**
+Look for `\r` at the ends of lines in `inspect` output, `(CRLF)` in the
+summary, or near misses in `trace`: Windows line endings break `$` anchors
+and exact field comparisons. Add `tr -d '\r'` early in the pipeline.
 
 **A stage failed.** `pipespy inspect --stage N --stream err`. Exit 127 means
 command not found; exit 1 from grep-like tools means no match.
@@ -183,8 +190,11 @@ Errors with `--json` are `{"error": "..."}` with a non-zero exit code.
   subshells. `||` is not a pipe. `|&` isn't supported; use `2>&1 |`.
 - `sigpipe` is normal: a stage stopped early because the next one (e.g.
   `head`) stopped reading.
-- Lines are shown with terminal escape codes removed and other control
-  characters written as `\xNN`. Binary streams are shown as hex dumps.
+- Lines are shown with terminal escape codes removed; a carriage return is
+  written as `\r` and other control characters as `\xNN`, so invisible
+  bytes that break matches are visible. Streams with Windows line endings are
+  marked `(CRLF)` / `"crlf": true` and get a hint. Binary streams are shown as
+  hex dumps.
 - Each stream keeps up to 64 MB; beyond that it is marked `truncated`.
 - Runs are stored under the user cache directory (`~/Library/Caches/pipespy`
   on macOS, `~/.cache/pipespy` on Linux, `%LocalAppData%\pipespy` on

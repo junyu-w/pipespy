@@ -207,3 +207,27 @@ func TestPruneKeepsNewestEvenWithinOneSecond(t *testing.T) {
 		t.Errorf("kept %d runs, newest %q, oldest %q", len(list), list[0].Pipeline, list[len(list)-1].Pipeline)
 	}
 }
+
+// CRLF data is the classic invisible pipeline bug: agents must be able to
+// see the \r and be told about it.
+func TestAgentMakesCRLFVisible(t *testing.T) {
+	isolate(t)
+	sh := posixShell(t)
+	out, _, _ := agent(t, strings.NewReader("US,paid\r\nDE,pending\r\nFR,paid\r\n"), "run", "--shell", sh,
+		`grep ',paid$' | cut -d, -f1`)
+	for _, want := range []string{"(CRLF)", "Windows (CRLF) line endings", "data disappears at stage 1", "note:     exit 0 is the last stage's status"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("summary missing %q:\n%s", want, out)
+		}
+	}
+	out, _, _ = agent(t, nil, "inspect", "--stdin", "--head", "1")
+	if !strings.Contains(out, "\tUS,paid\\r\n") {
+		t.Errorf("inspect should show \\r:\n%s", out)
+	}
+	out, _, _ = agent(t, nil, "trace", "--match", "paid$", "--json")
+	var tr TraceResult
+	json.Unmarshal([]byte(out), &tr)
+	if tr.Pipes[0].Matches != 0 || tr.Pipes[0].NearMiss != 2 || !strings.Contains(tr.Verdict, "CRLF") {
+		t.Errorf("trace near miss: %+v", tr)
+	}
+}

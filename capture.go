@@ -23,6 +23,7 @@ type Capture struct {
 	starts    []int // byte offset of the start of each stored line
 	total     int64
 	newlines  int64
+	crlf      int64 // lines ending in \r\n
 	lastByte  byte
 	truncated bool
 	cutShort  bool // reader downstream went away before EOF
@@ -46,6 +47,7 @@ func (c *Capture) Write(p []byte) (int, error) {
 	n := int64(len(p))
 	c.total += n
 	c.newlines += int64(bytes.Count(p, []byte{'\n'}))
+	c.crlf += int64(bytes.Count(p, []byte("\r\n")))
 	c.lastByte = p[len(p)-1]
 	c.last = now
 
@@ -117,6 +119,7 @@ type CapStats struct {
 	Truncated   bool
 	CutShort    bool
 	Binary      bool
+	CRLF        bool // most lines end in \r\n (Windows line endings)
 	Last        time.Time
 }
 
@@ -130,6 +133,7 @@ func (c *Capture) Stats() CapStats {
 	return CapStats{
 		Bytes: c.total, Lines: lines, StoredLines: c.storedLines(), StoredBytes: len(c.data),
 		Done: c.done, Truncated: c.truncated, CutShort: c.cutShort, Binary: c.binary, Last: c.last,
+		CRLF: c.crlf > 0 && c.crlf*2 >= c.newlines,
 	}
 }
 
@@ -158,11 +162,28 @@ func (c *Capture) Lines(from, count int) [][]byte {
 }
 
 func (c *Capture) line(i int) []byte {
+	return bytes.TrimSuffix(c.rawLine(i), []byte{'\r'})
+}
+
+// rawLine keeps a trailing \r so CRLF data stays visible to agents.
+func (c *Capture) rawLine(i int) []byte {
 	end := len(c.data)
 	if i+1 < len(c.starts) {
 		end = c.starts[i+1] - 1
 	}
-	return bytes.TrimSuffix(c.data[c.starts[i]:end], []byte{'\r'})
+	return c.data[c.starts[i]:end]
+}
+
+// RawLines is Lines without stripping a trailing \r.
+func (c *Capture) RawLines(from, count int) [][]byte {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	n := c.storedLines()
+	var out [][]byte
+	for i := max(from, 0); i < n && len(out) < count; i++ {
+		out = append(out, c.rawLine(i))
+	}
+	return out
 }
 
 func (c *Capture) Bytes(off, n int) []byte {

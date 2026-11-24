@@ -176,7 +176,7 @@ func waitPipeline(pl *Pipeline, timeout time.Duration) bool {
 
 func capLines(c *Capture, from, n, width int) []string {
 	out := []string{}
-	for _, l := range c.Lines(from, n) {
+	for _, l := range c.RawLines(from, n) {
 		out = append(out, agentLine(l, width))
 	}
 	return out
@@ -266,6 +266,17 @@ func hints(m RunMeta, saved bool, timeout time.Duration) (hints, next []string) 
 		}
 	}
 	for k, p := range m.Pipes {
+		if !p.CRLF {
+			continue
+		}
+		where := "the pipeline's stdin"
+		if k > 0 {
+			where = fmt.Sprintf("the output of stage %d (%s)", k, m.Stages[k-1].Command)
+		}
+		add(fmt.Sprintf("%s has Windows (CRLF) line endings: every line ends in \\r (shown as \\r by inspect). Patterns anchored with $, exact field matches and the last field of cut/awk include that \\r; strip it with tr -d '\\r' or sed 's/\\r$//'", where))
+		break
+	}
+	for k, p := range m.Pipes {
 		if p.Truncated {
 			add(fmt.Sprintf("pipe %d exceeded the %s capture limit; only the first %s is stored", k, humanBytes(maxCapture), humanBytes(maxCapture)))
 		}
@@ -292,6 +303,15 @@ func hints(m RunMeta, saved bool, timeout time.Duration) (hints, next []string) 
 func printSummary(w io.Writer, s Summary) {
 	fmt.Fprintf(w, "run %s · %s · exit %d · %d %s · %s\n", s.ID, s.Status, s.ExitCode,
 		len(s.Stages), plural(int64(len(s.Stages)), "stage", "stages"), humanDur(time.Duration(s.DurationMS*float64(time.Millisecond))))
+	if s.Status == "failed" && s.ExitCode == 0 {
+		var failed []string
+		for _, st := range s.Stages {
+			if st.Status == "failed" {
+				failed = append(failed, strconv.Itoa(st.Stage))
+			}
+		}
+		fmt.Fprintf(w, "note:     exit 0 is the last stage's status (as in a shell), but stage %s failed\n", strings.Join(failed, ", "))
+	}
 	fmt.Fprintf(w, "pipeline: %s\n", oneLine(s.Pipeline))
 	if s.Stdin != nil && s.Stdin.Bytes == 0 {
 		fmt.Fprintln(w, "stdin:    empty")
@@ -347,6 +367,9 @@ func flowMeta(m StreamMeta) string {
 	s := humanCount(m.Lines) + " ln · " + humanBytes(m.Bytes)
 	if m.Binary {
 		s += " (binary)"
+	}
+	if m.CRLF {
+		s += " (CRLF)"
 	}
 	if m.Truncated {
 		s += " (truncated)"
@@ -718,6 +741,9 @@ type TracePipe struct {
 	Matches   int    `json:"matches"`
 	FirstLine int    `json:"first_match_line,omitempty"`
 	First     string `json:"first_match,omitempty"`
+	// NearMiss counts lines that only match once a trailing \r or
+	// whitespace is removed (CRLF data vs a $-anchored pattern).
+	NearMiss int `json:"near_miss,omitempty"`
 }
 
 type TraceResult struct {
@@ -772,6 +798,8 @@ func cmdTrace(c cli, args []string) int {
 				if tp.FirstLine == 0 {
 					tp.FirstLine, tp.First = i+1, agentLine(l, 200)
 				}
+			} else if t := bytes.TrimRight(l, " \t\r"); len(t) < len(l) && re.Match(t) {
+				tp.NearMiss++
 			}
 		}
 		res.Pipes = append(res.Pipes, tp)
@@ -806,6 +834,15 @@ func cmdTrace(c cli, args []string) int {
 	default:
 		res.Verdict = fmt.Sprintf("every stage keeps the matching lines; %d reach the final output", last.Matches)
 	}
+	for _, p := range res.Pipes {
+		if p.NearMiss > 0 {
+			res.Verdict += fmt.Sprintf(". Note: %d %s in %s match only after removing a trailing \\r or whitespace — "+
+				"the data likely has CRLF (Windows) line endings or trailing spaces, so $-anchored patterns and exact matches fail; "+
+				"strip them with tr -d '\\r' (inspect shows them as \\r)",
+				p.NearMiss, plural(int64(p.NearMiss), "line", "lines"), p.Label)
+			break
+		}
+	}
 	if *asJSON {
 		c.json(res)
 		return 0
@@ -813,7 +850,7 @@ func cmdTrace(c cli, args []string) int {
 	w := c.out
 	fmt.Fprintf(w, "run %s · trace /%s/\n\n", res.Run, res.Pattern)
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "  pipe\tlines\tmatches\tfirst match")
+	fmt.Fprintln(tw, "  pipe\tlines\tmatches\tnear misses\tfirst match")
 	for _, p := range res.Pipes {
 		mark := ""
 		if p.Pipe == res.LostAt && res.LostAt > 0 {
@@ -825,7 +862,11 @@ func cmdTrace(c cli, args []string) int {
 		if p.FirstLine > 0 {
 			fm = fmt.Sprintf("%d: %s", p.FirstLine, clip(p.First, 60))
 		}
-		fmt.Fprintf(tw, "  %s\t%d\t%d\t%s%s\n", p.Label, p.Lines, p.Matches, fm, mark)
+		nm := "-"
+		if p.NearMiss > 0 {
+			nm = strconv.Itoa(p.NearMiss)
+		}
+		fmt.Fprintf(tw, "  %s\t%d\t%d\t%s\t%s%s\n", p.Label, p.Lines, p.Matches, nm, fm, mark)
 	}
 	tw.Flush()
 	fmt.Fprintln(w, "\n"+res.Verdict)
@@ -917,6 +958,8 @@ func sanitize(s string) string {
 			fmt.Fprintf(&b, `\x%02x`, s[0])
 		case r == '\t' || r == '\n':
 			b.WriteRune(r)
+		case r == '\r':
+			b.WriteString(`\r`)
 		case r < 32 || r == 127:
 			fmt.Fprintf(&b, `\x%02x`, r)
 		default:
@@ -928,7 +971,7 @@ func sanitize(s string) string {
 }
 
 func agentLine(raw []byte, width int) string {
-	s := sanitize(string(bytes.TrimSuffix(raw, []byte{'\r'})))
+	s := sanitize(string(raw))
 	if width > 0 {
 		s = clip(s, width)
 	}
