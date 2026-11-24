@@ -3,11 +3,17 @@
 # Creates an SSH deploy key that can write only to <owner>/<repo> and stores
 # its private half as an Actions secret on <owner>/pipespy.
 #
-#   scripts/setup-deploy-key.sh homebrew-tap TAP_DEPLOY_KEY
-#   scripts/setup-deploy-key.sh scoop-bucket SCOOP_DEPLOY_KEY
+#   scripts/setup-deploy-key.sh tap      # = homebrew-tap TAP_DEPLOY_KEY
+#   scripts/setup-deploy-key.sh scoop    # = scoop-bucket SCOOP_DEPLOY_KEY
+#   scripts/setup-deploy-key.sh <repo> <SECRET_NAME> [owner]
 set -euo pipefail
-repo=${1:?usage: setup-deploy-key.sh <repo> <SECRET_NAME> [owner]}
-secret=${2:?usage: setup-deploy-key.sh <repo> <SECRET_NAME> [owner]}
+usage="usage: setup-deploy-key.sh tap|scoop  or  setup-deploy-key.sh <repo> <SECRET_NAME> [owner]"
+case "${1:-}" in
+tap) set -- homebrew-tap TAP_DEPLOY_KEY "${@:2}" ;;
+scoop) set -- scoop-bucket SCOOP_DEPLOY_KEY "${@:2}" ;;
+esac
+repo=${1:?$usage}
+secret=${2:?$usage}
 owner=${3:-junyu-w}
 dir=$(mktemp -d)
 trap 'rm -rf "$dir"' EXIT

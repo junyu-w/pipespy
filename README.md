@@ -131,5 +131,4 @@ Push a tag: `git tag v0.2.0 && git push origin v0.2.0`. The
 Run the workflow manually (Actions → release → Run workflow) for a dry run
 of steps 1–3. Step 5 needs `TAP_DEPLOY_KEY` and `SCOOP_DEPLOY_KEY` secrets: deploy keys
 with write access to the tap and bucket repos. Set each up once with
-`scripts/setup-deploy-key.sh homebrew-tap TAP_DEPLOY_KEY` and
-`scripts/setup-deploy-key.sh scoop-bucket SCOOP_DEPLOY_KEY`.
+`scripts/setup-deploy-key.sh tap` and `scripts/setup-deploy-key.sh scoop`.
