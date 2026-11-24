@@ -220,9 +220,10 @@ func dataHints(pl *Pipeline) []string {
 		}
 		split, example := splitRuns(pl.Links[i].RawLines(0, 1<<30))
 		if split > 0 {
-			out = append(out, fmt.Sprintf("stage %d (%s) got unsorted input: %d %s (e.g. %q) appear in several separate runs, "+
+			out = append(out, fmt.Sprintf("stage %d (%s) got unsorted input: %d %s (e.g. %q) %s in several separate runs, "+
 				"so uniq counts or keeps each run separately. uniq only merges adjacent duplicates; put sort before it",
-				i+1, oneLine(st.Cmd), split, plural(int64(split), "value", "values"), clip(sanitize(example), 60)))
+				i+1, oneLine(st.Cmd), split, plural(int64(split), "value", "values"), clip(sanitize(example), 60),
+				plural(int64(split), "appears", "appear")))
 		}
 	}
 	return out
